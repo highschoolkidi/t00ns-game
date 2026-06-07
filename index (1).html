@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>t00ns: catch da bag</title>
+  <meta name="description" content="a t00ns mini game by ARM DAO — catch crypto, dodge rugpulls" />
+  <meta property="og:title" content="t00ns: catch da bag" />
+  <meta property="og:description" content="a t00ns mini game by ARM DAO — catch crypto, dodge rugpulls" />
+  <meta property="og:type" content="website" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%; height: 100%;
+      background: #1a1a1a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Space Mono', monospace;
+      overflow: hidden;
+    }
+    #game-wrap {
+      background: #f25c6e;
+      border-radius: 16px;
+      overflow: hidden;
+      width: 100%;
+      max-width: 480px;
+      padding-bottom: 16px;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    #score-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 16px 6px;
+      color: #fff;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }
+    #score-bar span { font-size: 18px; }
+    #canvas-wrap {
+      position: relative;
+      width: 100%;
+      height: 320px;
+    }
+    #gameCanvas {
+      display: block;
+      width: 100%;
+      height: 320px;
+      touch-action: none;
+    }
+    #overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(242,92,110,0.92);
+      color: #fff;
+      font-family: 'Space Mono', monospace;
+      z-index: 10;
+    }
+    #overlay h2 { font-size: 20px; font-weight: 700; margin-bottom: 6px; letter-spacing: 0.05em; }
+    #overlay p { font-size: 11px; color: rgba(255,255,255,0.85); margin-bottom: 16px; text-align: center; max-width: 260px; line-height: 1.7; }
+    #overlay .tag { font-size: 10px; color: rgba(255,255,255,0.5); margin-top: 12px; }
+    #overlay a { color: rgba(255,255,255,0.6); text-decoration: none; }
+    #overlay a:hover { color: #fff; }
+    #startBtn {
+      background: #1a1a1a;
+      color: #ffd700;
+      border: none;
+      border-radius: 8px;
+      font-family: 'Space Mono', monospace;
+      font-size: 13px;
+      font-weight: 700;
+      padding: 10px 28px;
+      cursor: pointer;
+      letter-spacing: 0.04em;
+    }
+    #startBtn:hover { background: #333; }
+    #instructions {
+      padding: 8px 16px 0;
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .inst-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 10px;
+      color: rgba(255,255,255,0.85);
+    }
+    .inst-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+    .swipe-hint {
+      text-align: center;
+      font-size: 9px;
+      color: rgba(255,255,255,0.6);
+      margin-top: 6px;
+      letter-spacing: 0.03em;
+    }
+  </style>
+</head>
+<body>
+<div id="game-wrap">
+  <div id="score-bar">
+    <div>sc0re<br><span id="scoreVal">0</span></div>
+    <div style="text-align:right">liv3s<br><span id="livesVal">❤️❤️❤️</span></div>
+  </div>
+  <div id="canvas-wrap">
+    <canvas id="gameCanvas" width="480" height="320"></canvas>
+    <div id="overlay">
+      <h2>t00ns: catch da bag</h2>
+      <p>catch crypto 🟡 / dodge rugpulls 🔴<br>tap or use arr0w keys</p>
+      <button id="startBtn">play fr</button>
+      <div class="tag">by <a href="https://twitter.com/ARM_DAO" target="_blank">@ARM_DAO</a> 🫶 <a href="https://twitter.com/t00ns_nft" target="_blank">@t00ns_nft</a></div>
+    </div>
+  </div>
+  <div id="instructions">
+    <div class="inst-item"><div class="inst-dot" style="background:#ffd700"></div>+10 pts</div>
+    <div class="inst-item"><div class="inst-dot" style="background:#00e5ff"></div>+25 pts</div>
+    <div class="inst-item"><div class="inst-dot" style="background:#ff4444"></div>-1 life</div>
+    <div class="inst-item"><div class="inst-dot" style="background:#ff69b4"></div>+1 life</div>
+  </div>
+  <div class="swipe-hint">← → or tap sides to m0ve</div>
+</div>
+
+<script>
+(function(){
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+  const W = 480, H = 320;
+  canvas.width = W; canvas.height = H;
+
+  let score = 0, lives = 3, running = false, raf;
+  let player = { x: W/2, y: H - 48, w: 54, h: 60, vx: 0, speed: 5 };
+  let items = [];
+  let frameCount = 0;
+  let keys = {};
+
+  const ITEM_TYPES = [
+    { type: 'coin',  color: '#ffd700', r: 11, pts: 10,  freq: 0.022 },
+    { type: 'gem',   color: '#00e5ff', r: 9,  pts: 25,  freq: 0.007 },
+    { type: 'rug',   color: '#ff3333', r: 13, pts: -100, freq: 0.014 },
+    { type: 'heart', color: '#ff69b4', r: 9,  pts: 0,   freq: 0.005 },
+  ];
+
+  function drawStar(cx, cy, outerR, pts, innerR) {
+    ctx.beginPath();
+    for(let i = 0; i < pts * 2; i++) {
+      const r = i % 2 === 0 ? outerR : innerR;
+      const angle = (i * Math.PI) / pts - Math.PI / 2;
+      if(i === 0) ctx.moveTo(cx + r * Math.cos(angle), cy + r * Math.sin(angle));
+      else ctx.lineTo(cx + r * Math.cos(angle), cy + r * Math.sin(angle));
+    }
+    ctx.closePath();
+  }
+
+  function drawT00n(x, y, squish) {
+    ctx.save();
+    ctx.translate(x, y);
+    if(squish) ctx.scale(1.12, 0.9);
+
+    ctx.fillStyle = '#7EB9D6';
+    ctx.beginPath(); ctx.ellipse(0, 12, 22, 26, 0, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(-26, 14, 9, 6, -0.4, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(26, 14, 9, 6, 0.4, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(-10, 34, 8, 5, 0.1, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(10, 34, 8, 5, -0.1, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(0, -10, 20, 18, 0, 0, Math.PI*2); ctx.fill();
+
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    ctx.beginPath(); ctx.ellipse(-6, -6, 5, 3, -0.5, 0, Math.PI*2); ctx.fill();
+
+    ctx.fillStyle = '#e8d0b8';
+    ctx.beginPath(); ctx.ellipse(-7, -13, 6, 5, 0, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(7, -13, 6, 5, 0, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#111';
+    ctx.beginPath(); ctx.arc(-6, -13, 2.5, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(8, -13, 2.5, 0, Math.PI*2); ctx.fill();
+
+    const gx=-14, gy=-2, gw=28, gh=9;
+    ctx.fillStyle = '#D4A017';
+    ctx.beginPath(); ctx.roundRect(gx, gy, gw, gh, 3); ctx.fill();
+    ctx.strokeStyle = '#8B6914'; ctx.lineWidth = 0.8;
+    for(let i=1;i<4;i++){
+      ctx.beginPath(); ctx.moveTo(gx+i*gw/4, gy+1); ctx.lineTo(gx+i*gw/4, gy+gh-1); ctx.stroke();
+    }
+    ctx.strokeStyle = '#C0C0C0'; ctx.lineWidth = 0.7;
+    ctx.beginPath(); ctx.moveTo(gx+2, gy+gh/2-1); ctx.lineTo(gx+gw-2, gy+gh/2-1); ctx.stroke();
+
+    ctx.fillStyle = '#C8960C';
+    ctx.beginPath(); ctx.roundRect(gx, gy+gh+1, gw, gh-1, 3); ctx.fill();
+    ctx.strokeStyle = '#8B6914'; ctx.lineWidth = 0.8;
+    for(let i=1;i<4;i++){
+      ctx.beginPath(); ctx.moveTo(gx+i*gw/4, gy+gh+2); ctx.lineTo(gx+i*gw/4, gy+gh*2-1); ctx.stroke();
+    }
+
+    ctx.fillStyle = '#fff';
+    drawStar(0, -4, 4, 5, 2); ctx.fill();
+
+    ctx.fillStyle = '#1a1a1a';
+    ctx.beginPath(); ctx.arc(0, 22, 5, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(-2, 21, 1.5, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(2, 21, 1.5, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#111';
+    ctx.beginPath(); ctx.arc(-1.8, 21.2, 0.7, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(2.2, 21.2, 0.7, 0, Math.PI*2); ctx.fill();
+
+    ctx.restore();
+  }
+
+  function drawItem(item) {
+    ctx.save();
+    ctx.translate(item.x, item.y + Math.sin(frameCount * 0.05 + item.phase) * 2);
+    if(item.type === 'coin') {
+      ctx.fillStyle = '#ffd700'; ctx.strokeStyle = '#b8860b'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(0, 0, item.r, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#b8860b'; ctx.font = `bold ${item.r}px Space Mono`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('₿', 0, 1);
+    } else if(item.type === 'gem') {
+      ctx.fillStyle = '#00e5ff'; ctx.strokeStyle = '#006d7a'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, -item.r); ctx.lineTo(item.r, 0);
+      ctx.lineTo(0, item.r); ctx.lineTo(-item.r, 0); ctx.closePath();
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.beginPath(); ctx.moveTo(0,-item.r+2); ctx.lineTo(item.r-2,0); ctx.lineTo(0,-2); ctx.closePath(); ctx.fill();
+    } else if(item.type === 'rug') {
+      ctx.fillStyle = '#ff3333'; ctx.strokeStyle = '#7a0000'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(0, 0, item.r, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#fff'; ctx.font = `bold ${item.r+2}px Space Mono`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('✗', 0, 1);
+    } else if(item.type === 'heart') {
+      ctx.fillStyle = '#ff69b4';
+      const r = item.r;
+      ctx.beginPath();
+      ctx.moveTo(0, r*0.4);
+      ctx.bezierCurveTo(-r*1.4,-r*0.5,-r*1.4,-r*1.4,0,-r*0.5);
+      ctx.bezierCurveTo(r*1.4,-r*1.4,r*1.4,-r*0.5,0,r*0.4);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function spawnItems() {
+    ITEM_TYPES.forEach(t => {
+      if(Math.random() < t.freq) {
+        items.push({ x: Math.random()*(W-40)+20, y: -20, vy: 2.2+Math.random()*1.8,
+          type: t.type, r: t.r, pts: t.pts, phase: Math.random()*Math.PI*2 });
+      }
+    });
+  }
+
+  function updateScore(v) {
+    score = Math.max(0, score + v);
+    document.getElementById('scoreVal').textContent = score;
+  }
+
+  let hitAnim = 0;
+  function updateLives(v) {
+    lives = Math.max(0, Math.min(5, lives + v));
+    document.getElementById('livesVal').textContent = '❤️'.repeat(lives) || '💀';
+    if(lives === 0) endGame();
+  }
+
+  function gameLoop() {
+    ctx.fillStyle = '#f25c6e'; ctx.fillRect(0,0,W,H);
+    ctx.strokeStyle = 'rgba(255,255,255,0.07)'; ctx.lineWidth = 1;
+    for(let i=0;i<W;i+=40){ ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,H); ctx.stroke(); }
+    for(let i=0;i<H;i+=40){ ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(W,i); ctx.stroke(); }
+
+    if(keys['ArrowLeft']||keys['a']) player.vx = -player.speed;
+    else if(keys['ArrowRight']||keys['d']) player.vx = player.speed;
+    else player.vx *= 0.8;
+    player.x += player.vx;
+    player.x = Math.max(player.w/2, Math.min(W-player.w/2, player.x));
+
+    spawnItems();
+    items = items.filter(item => {
+      item.y += item.vy;
+      const dx = Math.abs(item.x - player.x);
+      const dy = Math.abs(item.y - (player.y - 10));
+      if(dx < 24 && dy < 28) {
+        if(item.type === 'coin' || item.type === 'gem') updateScore(item.pts);
+        else if(item.type === 'rug') { hitAnim = 15; updateLives(-1); }
+        else if(item.type === 'heart') updateLives(1);
+        return false;
+      }
+      if(item.y > H+20) return false;
+      drawItem(item);
+      return true;
+    });
+
+    drawT00n(player.x, player.y, hitAnim > 0);
+    if(hitAnim > 0) hitAnim--;
+    frameCount++;
+    raf = requestAnimationFrame(gameLoop);
+  }
+
+  function startGame() {
+    score = 0; lives = 3; items = []; frameCount = 0; hitAnim = 0;
+    player.x = W/2; player.vx = 0;
+    document.getElementById('scoreVal').textContent = '0';
+    document.getElementById('livesVal').textContent = '❤️❤️❤️';
+    document.getElementById('overlay').style.display = 'none';
+    running = true;
+    gameLoop();
+  }
+
+  function endGame() {
+    running = false;
+    cancelAnimationFrame(raf);
+    const ov = document.getElementById('overlay');
+    ov.innerHTML = `
+      <h2>rekt 💀</h2>
+      <p>sc0re: <strong>${score}</strong><br><br>
+      u built different tho.<br>
+      post ur sc0re and tag @ARM_DAO 🫶</p>
+      <button id="startBtn">play again ser</button>
+      <div class="tag">by <a href="https://twitter.com/ARM_DAO" target="_blank">@ARM_DAO</a> × <a href="https://twitter.com/t00ns_nft" target="_blank">@t00ns_nft</a></div>
+    `;
+    ov.style.display = 'flex';
+    document.getElementById('startBtn').addEventListener('click', startGame);
+  }
+
+  document.getElementById('startBtn').addEventListener('click', startGame);
+  document.addEventListener('keydown', e => { keys[e.key] = true; });
+  document.addEventListener('keyup', e => { keys[e.key] = false; });
+
+  canvas.addEventListener('touchstart', e => {
+    const rect = canvas.getBoundingClientRect();
+    const tx = e.touches[0].clientX - rect.left;
+    keys['ArrowLeft'] = tx < rect.width/2;
+    keys['ArrowRight'] = tx >= rect.width/2;
+    e.preventDefault();
+  }, { passive: false });
+  canvas.addEventListener('touchend', () => { keys['ArrowLeft']=false; keys['ArrowRight']=false; }, { passive: false });
+  canvas.addEventListener('touchmove', e => {
+    const rect = canvas.getBoundingClientRect();
+    const tx = e.touches[0].clientX - rect.left;
+    keys['ArrowLeft'] = tx < rect.width/2;
+    keys['ArrowRight'] = tx >= rect.width/2;
+    e.preventDefault();
+  }, { passive: false });
+  canvas.addEventListener('click', e => {
+    if(!running) return;
+    const rect = canvas.getBoundingClientRect();
+    if(e.clientX - rect.left < rect.width/2) { keys['ArrowLeft']=true; setTimeout(()=>keys['ArrowLeft']=false,120); }
+    else { keys['ArrowRight']=true; setTimeout(()=>keys['ArrowRight']=false,120); }
+  });
+})();
+</script>
+</body>
+</html>
