@@ -145,6 +145,97 @@
   let frameCount = 0;
   let keys = {};
 
+  // ---- AUDIO ENGINE ----
+  let audioCtx = null;
+  let beatInterval = null;
+  let audioEnabled = false;
+
+  function getAudio() {
+    if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    return audioCtx;
+  }
+
+  function playTone(freq, type, duration, vol, decay) {
+    try {
+      const ac = getAudio();
+      const osc = ac.createOscillator();
+      const gain = ac.createGain();
+      osc.connect(gain); gain.connect(ac.destination);
+      osc.type = type; osc.frequency.setValueAtTime(freq, ac.currentTime);
+      gain.gain.setValueAtTime(vol, ac.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + decay);
+      osc.start(ac.currentTime); osc.stop(ac.currentTime + decay);
+    } catch(e) {}
+  }
+
+  function playCoin() {
+    playTone(880, 'square', 0.08, 0.18, 0.08);
+    setTimeout(() => playTone(1320, 'square', 0.06, 0.12, 0.06), 60);
+  }
+
+  function playGem() {
+    [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => playTone(f, 'square', 0.1, 0.15, 0.1), i*40));
+  }
+
+  function playRug() {
+    try {
+      const ac = getAudio();
+      const buf = ac.createBuffer(1, ac.sampleRate * 0.25, ac.sampleRate);
+      const data = buf.getChannelData(0);
+      for(let i=0;i<data.length;i++) data[i] = (Math.random()*2-1) * Math.max(0, 1 - i/data.length);
+      const src = ac.createBufferSource();
+      const gain = ac.createGain();
+      src.buffer = buf; src.connect(gain); gain.connect(ac.destination);
+      gain.gain.setValueAtTime(0.3, ac.currentTime);
+      src.start();
+    } catch(e) {}
+  }
+
+  function playHeart() {
+    playTone(440, 'sine', 0.15, 0.2, 0.15);
+    setTimeout(() => playTone(660, 'sine', 0.12, 0.15, 0.12), 80);
+  }
+
+  function playDead() {
+    [400,320,240,160].forEach((f,i) => setTimeout(() => playTone(f, 'sawtooth', 0.2, 0.25, 0.2), i*80));
+  }
+
+  function startBeat() {
+    if(beatInterval) return;
+    let step = 0;
+    const pattern = [1,0,0,0, 1,0,1,0, 1,0,0,0, 1,0,1,1];
+    const hihat =   [1,1,1,1, 1,1,1,1, 1,1,1,1, 1,1,1,1];
+    beatInterval = setInterval(() => {
+      if(!audioEnabled) return;
+      try {
+        const ac = getAudio();
+        if(pattern[step % 16]) {
+          const buf = ac.createBuffer(1, ac.sampleRate*0.08, ac.sampleRate);
+          const d = buf.getChannelData(0);
+          for(let i=0;i<d.length;i++) d[i] = (Math.random()*2-1)*Math.exp(-i/(ac.sampleRate*0.02));
+          const s = ac.createBufferSource(); const g = ac.createGain();
+          s.buffer=buf; s.connect(g); g.connect(ac.destination);
+          g.gain.setValueAtTime(0.18, ac.currentTime); s.start();
+        }
+        if(hihat[step % 16]) {
+          const buf2 = ac.createBuffer(1, ac.sampleRate*0.03, ac.sampleRate);
+          const d2 = buf2.getChannelData(0);
+          for(let i=0;i<d2.length;i++) d2[i] = (Math.random()*2-1)*Math.exp(-i/(ac.sampleRate*0.005));
+          const s2 = ac.createBufferSource(); const g2 = ac.createGain();
+          s2.buffer=buf2; s2.connect(g2); g2.connect(ac.destination);
+          g2.gain.setValueAtTime(0.05, ac.currentTime); s2.start();
+        }
+        if(step % 4 === 0) playTone([130,130,146,110][Math.floor(step/4)%4], 'sine', 0.12, 0.07, 0.12);
+      } catch(e) {}
+      step++;
+    }, 125);
+  }
+
+  function stopBeat() {
+    if(beatInterval) { clearInterval(beatInterval); beatInterval = null; }
+  }
+  // ---- END AUDIO ----
+
   const ITEM_TYPES = [
     { type: 'coin',  color: '#ffd700', r: 11, pts: 10,  freq: 0.022 },
     { type: 'gem',   color: '#00e5ff', r: 9,  pts: 25,  freq: 0.007 },
@@ -290,9 +381,10 @@
       const dx = Math.abs(item.x - player.x);
       const dy = Math.abs(item.y - (player.y - 10));
       if(dx < 24 && dy < 28) {
-        if(item.type === 'coin' || item.type === 'gem') updateScore(item.pts);
-        else if(item.type === 'rug') { hitAnim = 15; updateLives(-1); }
-        else if(item.type === 'heart') updateLives(1);
+        if(item.type === 'coin') { updateScore(item.pts); playCoin(); }
+        else if(item.type === 'gem') { updateScore(item.pts); playGem(); }
+        else if(item.type === 'rug') { hitAnim = 15; updateLives(-1); playRug(); }
+        else if(item.type === 'heart') { updateLives(1); playHeart(); }
         return false;
       }
       if(item.y > H+20) return false;
@@ -313,11 +405,17 @@
     document.getElementById('livesVal').textContent = '❤️❤️❤️';
     document.getElementById('overlay').style.display = 'none';
     running = true;
+    audioEnabled = true;
+    getAudio();
+    startBeat();
     gameLoop();
   }
 
   function endGame() {
     running = false;
+    audioEnabled = false;
+    stopBeat();
+    playDead();
     cancelAnimationFrame(raf);
     const ov = document.getElementById('overlay');
     ov.innerHTML = `
